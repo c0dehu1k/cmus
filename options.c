@@ -41,6 +41,9 @@
 #include "debug.h"
 #include "discid.h"
 #include "mpris.h"
+#ifdef HAVE_CONFIG
+#include "config/curses.h"
+#endif
 
 #include <stdio.h>
 #include <errno.h>
@@ -73,12 +76,15 @@ int shuffle = 0;
 int follow = 0;
 int display_artist_sort_name;
 int smart_artist_sort = 1;
+int sort_albums_by_name = 0;
 int scroll_offset = 2;
 int rewind_offset = 5;
 int skip_track_info = 0;
+int ignore_duplicates = 0;
 int auto_expand_albums_follow = 1;
 int auto_expand_albums_search = 1;
 int auto_expand_albums_selcur = 1;
+int auto_hide_playlists_panel = 0;
 int show_all_tracks = 1;
 int mouse = 0;
 int mpris = 1;
@@ -88,6 +94,7 @@ int stop_after_queue = 0;
 int tree_width_percent = 33;
 int tree_width_max = 0;
 int pause_on_output_change = 0;
+int block_key_paste = 1;
 
 int colors[NR_COLORS] = {
 	-1,
@@ -158,6 +165,7 @@ char *window_title_alt_format = NULL;
 char *id3_default_charset = NULL;
 char *icecast_default_charset = NULL;
 char *lib_add_filter = NULL;
+char **pl_env_vars;
 
 static void buf_int(char *buf, int val, size_t size)
 {
@@ -266,6 +274,7 @@ static const struct {
 	{ "pl_sort", "" },
 	{ "id3_default_charset", "ISO-8859-1" },
 	{ "icecast_default_charset", "ISO-8859-1" },
+	{ "pl_env_vars", "" },
 	{ NULL, NULL }
 };
 
@@ -505,9 +514,74 @@ static void set_tree_width_max(void *data, const char *buf)
 	update_size();
 }
 
+/* get_pl_env_vars converts the pl_env_vars array into a comma-separated list */
+static void get_pl_env_vars(void *data, char *buf, size_t size)
+{
+	if (!pl_env_vars) {
+		strscpy(buf, "", size);
+		return;
+	}
+	char *p = buf;
+	size_t r = size - 1;
+	for (char **x = pl_env_vars; *x; x++) {
+		if (x != pl_env_vars) {
+			if (!--r)
+				return; /* overflow */
+			*p++ = ',';
+		}
+		size_t l = strlen(*x);
+		if (!(r -= l))
+			return; /* overflow */
+		strcpy(p, *x);
+		p += l;
+	}
+	*p = '\0';
+}
+
+/* set_pl_env_vars splits the pl_env_vars config into the pl_env_vars array */
+static void set_pl_env_vars(void *data, const char *buf)
+{
+	if (pl_env_vars) {
+		free(*pl_env_vars);
+		free(pl_env_vars);
+	}
+	if (!*buf) {
+		pl_env_vars = NULL;
+	}
+	size_t n = 1;
+	for (const char *x = buf; *x; x++) {
+		if (*x == ',') {
+			n++;
+		}
+	}
+	char **a = pl_env_vars = xnew(char*, n+1);
+	for (char *x = *a++ = xstrdup(buf); *x; x++) {
+		if (*x == ',') {
+			*a++ = x+1;
+			*x = '\0';
+		}
+	}
+	*a = NULL;
+}
+
 /* }}} */
 
 /* callbacks for toggle options {{{ */
+
+static void get_auto_hide_playlists_panel(void *data, char *buf, size_t size)
+{
+	strscpy(buf, bool_names[auto_hide_playlists_panel], size);
+}
+
+static void set_auto_hide_playlists_panel(void *data, const char *buf)
+{
+	parse_bool(buf, &auto_hide_playlists_panel);
+}
+
+static void toggle_auto_hide_playlists_panel(void *data)
+{
+	auto_hide_playlists_panel ^= 1;
+}
 
 static void get_auto_reshuffle(void *data, char *buf, size_t size)
 {
@@ -680,6 +754,23 @@ static void set_smart_artist_sort(void *data, const char *buf)
 static void toggle_smart_artist_sort(void *data)
 {
 	smart_artist_sort ^= 1;
+	lib_sort_artists();
+}
+
+static void get_sort_albums_by_name(void *data, char *buf, size_t size)
+{
+	strscpy(buf, bool_names[sort_albums_by_name], size);
+}
+
+static void set_sort_albums_by_name(void *data, const char *buf)
+{
+	parse_bool(buf, &sort_albums_by_name);
+	lib_sort_artists();
+}
+
+static void toggle_sort_albums_by_name(void *data)
+{
+	sort_albums_by_name ^= 1;
 	lib_sort_artists();
 }
 
@@ -1106,6 +1197,21 @@ static void toggle_skip_track_info(void *data)
 	skip_track_info ^= 1;
 }
 
+static void get_ignore_duplicates(void *data, char *buf, size_t size)
+{
+	strscpy(buf, bool_names[ignore_duplicates], size);
+}
+
+static void set_ignore_duplicates(void *data, const char *buf)
+{
+	parse_bool(buf, &ignore_duplicates);
+}
+
+static void toggle_ignore_duplicates(void *data)
+{
+	ignore_duplicates ^= 1;
+}
+
 void update_mouse(void)
 {
 	if (mouse) {
@@ -1231,6 +1337,21 @@ static void toggle_pause_on_output_change(void *data)
 	pause_on_output_change ^= 1;
 }
 
+static void get_block_key_paste(void *data, char *buf, size_t size)
+{
+	strscpy(buf, bool_names[block_key_paste], size);
+}
+
+static void set_block_key_paste(void *data, const char *buf)
+{
+	parse_bool(buf, &block_key_paste);
+}
+
+static void toggle_block_key_paste(void *data)
+{
+	block_key_paste ^= 1;
+}
+
 /* }}} */
 
 /* special callbacks (id set) {{{ */
@@ -1292,6 +1413,7 @@ static void get_attr(void *data, char *buf, size_t size)
 	const char *reverse = "";
 	const char *blink = "";
 	const char *bold = "";
+	const char *italic = "";
 
 	if (attr & A_STANDOUT)
 		standout = "standout|";
@@ -1303,9 +1425,13 @@ static void get_attr(void *data, char *buf, size_t size)
 		blink = "blink|";
 	if (attr & A_BOLD)
 		bold = "bold|";
+	#if HAVE_ITALIC
+	if (attr & A_ITALIC)
+		italic = "italic|";
+	#endif
 
-	size_t len = snprintf(buf, size, "%s%s%s%s%s", standout, underline, reverse,
-			blink, bold);
+	size_t len = snprintf(buf, size, "%s%s%s%s%s%s",
+			standout, underline, reverse, blink, bold, italic);
 
 	if (0 < len && len < size)
 		buf[len - 1] = 0;
@@ -1335,6 +1461,10 @@ static void set_attr(void *data, const char *buf)
 				attr |= A_BLINK;
 			else if (strcmp(current, "bold") == 0)
 				attr |= A_BOLD;
+			#if HAVE_ITALIC
+			else if (strcmp(current, "italic") == 0)
+				attr |= A_ITALIC;
+			#endif
 
 			free(current);
 
@@ -1442,6 +1572,7 @@ static const struct {
 	DT(continue)
 	DT(continue_album)
 	DT(smart_artist_sort)
+	DT(sort_albums_by_name)
 	DN(id3_default_charset)
 	DN(icecast_default_charset)
 	DN(lib_sort)
@@ -1461,6 +1592,7 @@ static const struct {
 	DT(auto_expand_albums_follow)
 	DT(auto_expand_albums_search)
 	DT(auto_expand_albums_selcur)
+	DT(auto_hide_playlists_panel)
 	DT(show_all_tracks)
 	DT(show_current_bitrate)
 	DT(show_playback_position)
@@ -1473,6 +1605,7 @@ static const struct {
 	DN_FLAGS(status_display_program, OPT_PROGRAM_PATH)
 	DT(wrap_search)
 	DT(skip_track_info)
+	DT(ignore_duplicates)
 	DT(mouse)
 	DT(mpris)
 	DT(time_show_leading_zero)
@@ -1482,6 +1615,8 @@ static const struct {
 	DN(tree_width_percent)
 	DN(tree_width_max)
 	DT(pause_on_output_change)
+	DN(pl_env_vars)
+	DT(block_key_paste)
 	{ NULL, NULL, NULL, NULL, 0 }
 };
 

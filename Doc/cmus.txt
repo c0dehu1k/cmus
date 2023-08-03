@@ -195,35 +195,38 @@ commands in the COMMANDS section.
 
 @h2 Common: Playback
 @pre
-b                       player-next
-c                       player-pause
-x                       player-play
-z                       player-prev
-v                       player-stop
+b                           player-next
+c                           player-pause
+x                           player-play
+z                           player-prev
+v                           player-stop
 
-B                       player-next-album
-Z                       player-prev-album
+B                           player-next-album
+Z                           player-prev-album
 
-]                       vol +0 +1%
-[                       vol +1% +0
-+                       vol +10%
-=                       vol +10%
-}                       vol -0 -1%
-{                       vol -1% -0
--                       vol -10%
+]                           vol +0 +1%
+[                           vol +1% +0
++                           vol +10%
+=                           vol +10%
+}                           vol -0 -1%
+{                           vol -1% -0
+-                           vol -10%
 
-,                       seek -1m
-.                       seek +1m
+,                           seek -1m
+.                           seek +1m
 
-h                       seek -5
-l                       seek +5
+h                           seek -5
+l                           seek +5
 
-left                    seek -5
-right                   seek +5
+left                        seek -5
+right                       seek +5
 
-mlb_click_bar           player-pause
-mouse_scroll_up_bar     seek +5
-mouse_scroll_down_bar   seek -5
+mlb_click_bar               player-pause
+mlb_click_bar_right         player-pause
+mouse_scroll_up_bar         seek +5
+mouse_scroll_down_bar       seek -5
+mouse_scroll_up_bar_right   vol +1%
+mouse_scroll_down_bar_right vol -1%
 @endpre
 
 @h2 Common: Setting Toggles
@@ -543,11 +546,18 @@ player-stop (*v*)
 prev-view
 	Goes to the previously used view.
 
-left-view
+left-view [-n]
 	Goes to the to view to the left of current one (e.g. view 4 -> view 3)
 
-right-view
+	@li -n
+	no cycle back to end when reaching the first view
+
+right-view [-n]
 	Goes to view to the right of current one (e.g. view 3 -> view 4).
+
+	@li -n
+	no cycle back to start when reaching the last view
+
 
 push [text]
 	Enters command mode with the command line pre-set to text. Example:
@@ -851,6 +861,10 @@ auto_expand_albums_follow, auto_expand_albums_search, auto_expand_albums_selcur 
 	option. Any "auto_expand_albums_\* = false" implies "show_all_tracks =
 	true".
 
+auto_hide_playlists_panel (false)
+	Hide the left panel in playlist view. The panel will show as needed when
+	activated with win-next (*tab*).
+
 auto_reshuffle (true)
 	Reshuffle a playlist when the end of a shuffled list is reached.
 
@@ -883,6 +897,10 @@ altformat_trackwin [`Format String`]
 	Alternative format string for the tree view's (1) track window.
 
 	Note: if empty, *format_trackwin* is used instead.
+
+block_key_paste (true)
+	Prevent accidental input by only accepting pasted text in the command line.
+	Only works on terminals which support bracketed paste.
 
 buffer_seconds (10) [1-300]
 	Size of the player buffer in seconds.
@@ -1071,6 +1089,9 @@ smart_artist_sort (true)
 	names, preventing artists starting with "The" from clumping together.
 	Real `artistsort` tags override this option, if present.
 
+sort_albums_by_name (false)
+	In tree view (1), albums will be sorted by name rather than date.
+
 id3_default_charset (ISO-8859-1)
 	Default character set to use for ID3v1 and broken ID3v2 tags.
 
@@ -1080,6 +1101,11 @@ icecast_default_charset (ISO-8859-1)
 	Default character set to use for non-UTF-8 icecast stream metadata.
 
 	Note: This is used only if the metadata is not valid UTF-8.
+
+ignore_duplicates (false)
+	Ignore duplicates when adding tracks to the library. A track is a duplicate
+	if it has a matching artist, album, disc number, track number, and track
+	name.
 
 lib_add_filter [`Filter`]
 	Apply filter when adding files to the library. See *FILTERS*.
@@ -1105,6 +1131,13 @@ pause_on_output_change (false)
     Pauses playback when the audio output changes.
 
     Supported output plugins: pulse.
+
+pl_env_vars
+	Comma separated list of environment variables to substitute when saving
+	library/playlist files. The paths must be absolute to take effect. See
+	`Library Environment Variables`.
+
+	Note: This option will not take full effect until cmus has been restarted.
 
 pl_sort () [`Sort Keys`]
 	Sort keys for the playlist view (3). Empty value disables sorting and
@@ -1276,6 +1309,8 @@ the other attributes will be used.
 `reverse` reverses the text colors.
 
 `underline` underlines the text.
+
+`italic` makes the text italic (not supported on all ncurses versions).
 
 `blink` makes the text blink.
 
@@ -1670,6 +1705,46 @@ USER
 
 USERNAME
 	Fallback for *USER*.
+
+@h2 Library Environment Variables
+
+cmus supports using environment variables to allow the library, cache, and
+playlists to be relocated or synced. The environment variables to use are
+specified using the `pl_env_vars` configuration option, which takes effect when
+exiting cmus.
+
+A good starting point is `:set pl_env_vars=HOME`. This will allow the `.cmus`
+directory to be shared between devices or users. Additional environment
+variables can be appended (delimited with commas) to `pl_env_vars` to redirect
+specific paths. The environment variables must contain absolute paths to be
+used. The last matching directory prefix will be used.
+
+If a file does not exist, it will be treated the same way as missing files
+usually are. If the file is in the cache, it will be preserved, and an error
+will be displayed upon playback. If the file is not in the cache, it will be
+removed from playlists and the library. There is one special exception: if a
+file is missing due to the environment variable being invalid/empty/unset, but
+it is still in the cache, it will be preserved in the cache as-is, in addition
+to being preserved in the library like usual.
+
+When using `:save`/`:load` and in the on-disk library/cache/playlists, the paths
+will be stored with the environment variable delimited using the character
+`\\x1F`, which is the invisible ASCII unit separator.
+
+This feature can also be used to quickly move a library to a different location
+while preserving all metadata, playlists, and the play counts. To do this, set
+an environment variable for each base path you want to change, set `pl_env_vars`
+to the list of environment variables, restart cmus, change the environment
+variables, restart cmus, unset `pl_env_vars`, then restart cmus again.
+
+If a library using `pl_env_vars` is opened with a version of cmus not supporting
+it, tracks referenced with environment variables will be forgotten. To restore
+the on-disk files to be compatible with older cmus versions, just unset
+`pl_env_vars`, and restart cmus. This will restore the paths for all defined
+environment variables to their actual path.
+
+It is safe to change `pl_env_vars` from outside cmus since this variable is
+applied when cmus exits.
 
 @h1 D-Bus Interface (MPRIS)
 

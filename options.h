@@ -134,6 +134,7 @@ extern char *server_password;
 extern int auto_expand_albums_follow;
 extern int auto_expand_albums_search;
 extern int auto_expand_albums_selcur;
+extern int auto_hide_playlists_panel;
 extern int show_all_tracks;
 extern int auto_reshuffle;
 extern int confirm_run;
@@ -150,9 +151,11 @@ extern int shuffle;
 extern int follow;
 extern int display_artist_sort_name;
 extern int smart_artist_sort;
+extern int sort_albums_by_name;
 extern int scroll_offset;
 extern int rewind_offset;
 extern int skip_track_info;
+extern int ignore_duplicates;
 extern int mouse;
 extern int mpris;
 extern int time_show_leading_zero;
@@ -161,6 +164,7 @@ extern int stop_after_queue;
 extern int tree_width_percent;
 extern int tree_width_max;
 extern int pause_on_output_change;
+extern int block_key_paste;
 
 extern const char * const aaa_mode_names[];
 extern const char * const view_names[NR_VIEWS + 1];
@@ -200,6 +204,9 @@ extern char *clipped_text_internal;
 
 extern char *id3_default_charset;
 extern char *icecast_default_charset;
+
+/* comma-separated list of env vars to substitute in saved library/cache paths */
+extern char **pl_env_vars;
 
 /* build option list */
 void options_add(void);
